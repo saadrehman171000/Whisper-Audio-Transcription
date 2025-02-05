@@ -55,23 +55,37 @@ class WhisperTranscriber:
             
             # Convert stereo to mono if needed
             if len(audio_data.shape) > 1:
+                print("Converting stereo to mono...")
                 audio_data = audio_data.mean(axis=1)
             
-            # Resample to 16kHz if needed
-            if sample_rate != 16000:
-                print(f"Resampling from {sample_rate}Hz to 16000Hz")
-                new_length = int(len(audio_data) * 16000 / sample_rate)
-                audio_data = scipy.signal.resample(audio_data, new_length)
-            
-            # Normalize audio
+            # Ensure audio is float32 and normalized
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
             
             if np.abs(audio_data).max() > 1.0:
                 audio_data = audio_data / np.abs(audio_data).max()
             
+            # Resample to 16kHz if needed (Whisper requirement)
+            if sample_rate != 16000:
+                print(f"Resampling from {sample_rate}Hz to 16000Hz")
+                new_length = int(len(audio_data) * 16000 / sample_rate)
+                audio_data = scipy.signal.resample(audio_data, new_length)
+                sample_rate = 16000
+            
+            # Ensure minimum duration (at least 0.1 seconds)
+            min_samples = int(0.1 * sample_rate)
+            if len(audio_data) < min_samples:
+                print("Audio too short, padding with silence...")
+                audio_data = np.pad(audio_data, (0, min_samples - len(audio_data)))
+            
+            # Ensure maximum duration (trim if too long)
+            max_samples = int(30 * 60 * sample_rate)  # 30 minutes max
+            if len(audio_data) > max_samples:
+                print("Audio too long, trimming...")
+                audio_data = audio_data[:max_samples]
+            
             print(f"Successfully loaded audio file")
-            print(f"Audio duration: {len(audio_data)/16000:.2f} seconds")
+            print(f"Audio duration: {len(audio_data)/sample_rate:.2f} seconds")
             print(f"Audio shape: {audio_data.shape}")
             print(f"Audio dtype: {audio_data.dtype}")
             print(f"Audio range: [{audio_data.min():.2f}, {audio_data.max():.2f}]")
@@ -81,32 +95,44 @@ class WhisperTranscriber:
             # Detect language if not specified
             if not language:
                 print("Detecting language...")
-                result = self.current_model.transcribe(
-                    audio_data,
-                    task="detect_language",
-                    fp16=False
-                )
-                language = result["language"]
-                print(f"Detected language: {language}")
+                try:
+                    result = self.current_model.transcribe(
+                        audio_data,
+                        task="detect_language",
+                        fp16=False
+                    )
+                    language = result["language"]
+                    print(f"Detected language: {language}")
+                except Exception as e:
+                    print(f"Language detection failed: {e}")
+                    language = None  # Fall back to auto-detection in transcription
             
             # Perform transcription
-            result = self.current_model.transcribe(
-                audio_data,
-                language=language,
-                task="transcribe",
-                fp16=False,
-                verbose=None,
-                word_timestamps=True
-            )
+            try:
+                result = self.current_model.transcribe(
+                    audio_data,
+                    language=language,
+                    task="transcribe",
+                    fp16=False,
+                    verbose=None
+                )
+                
+                transcription_time = time.time() - start_time
+                
+                return {
+                    "text": result["text"],
+                    "language": result["language"],
+                    "segments": result["segments"],
+                    "transcription_time": transcription_time,
+                    "audio_data": audio_data,  # Include processed audio data
+                    "sample_rate": sample_rate
+                }
+            except Exception as e:
+                print(f"Transcription failed: {str(e)}")
+                print(f"Audio shape: {audio_data.shape}")
+                print(f"Sample rate: {sample_rate}")
+                raise ValueError(f"Transcription failed: Please ensure the audio file is valid and try again. Error: {str(e)}")
             
-            transcription_time = time.time() - start_time
-            
-            return {
-                "text": result["text"],
-                "language": result["language"],
-                "segments": result["segments"],
-                "transcription_time": transcription_time
-            }
         except Exception as e:
             print(f"Error processing audio: {str(e)}")
             print(f"Full error details: {repr(e)}")

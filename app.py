@@ -137,6 +137,13 @@ def main():
     if 'transcriber' not in st.session_state:
         st.session_state.transcriber = WhisperTranscriber()
 
+    # Add this before the model selection
+    st.info("""
+    💡 **Model Guide:**
+    - **Tiny**: Fastest (32x) but less accurate. Best for quick drafts.
+    - **Base**: Better accuracy with good speed (16x). Recommended for most uses.
+    """)
+
     # Model selection with enhanced UI
     st.markdown("### Choose Your Model")
     model_size = st.selectbox(
@@ -212,9 +219,16 @@ def main():
                     try:
                         result = st.session_state.transcriber.transcribe_audio(audio_path)
                     except Exception as e:
-                        st.error(f"❌ Transcription Error: {str(e)}")
-                        st.warning("Please try a different audio file or model size.")
-                        return  # Exit early if transcription fails
+                        st.error("❌ Transcription failed")
+                        st.warning("""
+                        Please check that:
+                        - The audio file is not corrupted
+                        - The audio format is supported (MP3, WAV, M4A)
+                        - The audio duration is reasonable (< 30 minutes)
+                        - The audio quality is clear
+                        """)
+                        st.info("Try using a different audio file or model size.")
+                        return
 
                 if not result or 'text' not in result:
                     st.error("❌ Failed to get transcription results")
