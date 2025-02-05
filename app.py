@@ -4,6 +4,7 @@ import tempfile
 from whisper_transcription import WhisperTranscriber
 import time
 import torch
+import soundfile as sf
 
 def set_page_config():
     st.set_page_config(
@@ -113,12 +114,18 @@ def display_features():
         else:
             st.sidebar.markdown(f"<div style='font-size: 0.9em; color: #666;'>{duration_min:.1f} minutes</div>", unsafe_allow_html=True)
 
-    # Add system info
+    # Add system info with error handling
     st.sidebar.markdown("### 💻 System Info")
-    device = "GPU 🚀" if torch.cuda.is_available() else "CPU 💻"
-    st.sidebar.markdown(f"**Processing Unit:** {device}")
-    if torch.cuda.is_available():
-        st.sidebar.markdown(f"**GPU Model:** {torch.cuda.get_device_name(0)}")
+    try:
+        device = "GPU 🚀" if torch.cuda.is_available() else "CPU 💻"
+        st.sidebar.markdown(f"**Processing Unit:** {device}")
+        if torch.cuda.is_available():
+            try:
+                st.sidebar.markdown(f"**GPU Model:** {torch.cuda.get_device_name(0)}")
+            except:
+                st.sidebar.markdown("**GPU Model:** Not available")
+    except Exception as e:
+        st.sidebar.markdown("**Processing Unit:** CPU 💻")
 
 def main():
     set_page_config()
@@ -143,18 +150,33 @@ def main():
     st.markdown("### Upload Your Audio")
     st.markdown("Supported formats: MP3, WAV, M4A")
     
-    uploaded_file = st.file_uploader("", type=['mp3', 'wav', 'm4a'])
+    uploaded_file = st.file_uploader(
+        label="Choose an audio file",
+        type=['mp3', 'wav', 'm4a'],
+        label_visibility="collapsed"
+    )
     
     if uploaded_file:
         try:
             # Display file info
             file_details = {
                 "Filename": uploaded_file.name,
-                "File size": f"{uploaded_file.size / 1024:.1f} KB"
+                "File size": f"{uploaded_file.size / 1024:.1f} KB",
+                "Upload time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
-            st.markdown("#### File Details")
-            for key, value in file_details.items():
-                st.write(f"**{key}:** {value}")
+            
+            # Create an expandable section for file details
+            with st.expander("📁 File Details", expanded=True):
+                for key, value in file_details.items():
+                    st.write(f"**{key}:** {value}")
+                
+                # Add processing tips
+                st.info("""
+                💡 **Processing Tips:**
+                - Larger files may take longer to process
+                - For best results, ensure clear audio quality
+                - Supported languages: 90+ languages
+                """)
 
             with st.spinner("Processing audio file..."):
                 # Save uploaded file
@@ -234,8 +256,50 @@ def main():
             # Update session state
             st.session_state.transcription_count += 1
             st.session_state.languages_detected.add(result['language'])
-            audio_duration = len(result['audio_data'])/16000  # Calculate audio duration
-            st.session_state.total_audio_duration += audio_duration
+            
+            # Calculate audio duration from the audio file
+            try:
+                audio_data, sample_rate = sf.read(audio_path)
+                audio_duration = len(audio_data) / sample_rate
+                st.session_state.total_audio_duration += audio_duration
+            except Exception as e:
+                st.warning("Could not calculate audio duration")
+
+            # Add download buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                # Create text file with transcription
+                transcript_text = f"""Transcription Results
+Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}
+File: {uploaded_file.name}
+Model: {model_size}
+Language: {result['language']}
+Duration: {audio_duration:.2f} seconds
+---
+{result['text']}
+"""
+                st.download_button(
+                    label="📥 Download Transcription",
+                    data=transcript_text,
+                    file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                )
+            
+            if result['language'] != 'en':
+                with col2:
+                    # Create text file with translation
+                    translation_text = f"""English Translation
+Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}
+Original Language: {result['language']}
+---
+{translation['text']}
+"""
+                    st.download_button(
+                        label="📥 Download Translation",
+                        data=translation_text,
+                        file_name=f"translation_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain"
+                    )
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
