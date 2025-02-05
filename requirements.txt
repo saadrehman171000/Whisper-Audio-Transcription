@@ -1,0 +1,8 @@
+streamlit
+whisper
+torch
+sounddevice
+scipy
+numpy
+soundfile
+pathlib 
