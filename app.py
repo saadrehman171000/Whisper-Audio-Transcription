@@ -3,6 +3,7 @@ import os
 import tempfile
 from whisper_transcription import WhisperTranscriber
 import time
+import torch
 
 def set_page_config():
     st.set_page_config(
@@ -80,11 +81,44 @@ def display_features():
     st.sidebar.markdown("---")
     st.sidebar.info('💡 Tip: The "base" model provides better accuracy than "tiny" but takes slightly longer to load.')
     
-    # Add usage statistics (demo numbers)
-    st.sidebar.markdown("### Usage Statistics")
+    # Add real-time session info
+    if 'transcription_count' not in st.session_state:
+        st.session_state.transcription_count = 0
+    if 'total_audio_duration' not in st.session_state:
+        st.session_state.total_audio_duration = 0
+    if 'languages_detected' not in st.session_state:
+        st.session_state.languages_detected = set()
+
+    st.sidebar.markdown("### Session Information")
+    
+    # Display session metrics in an organized way
+    st.sidebar.markdown("""
+    📊 **Current Session Stats**
+    """)
+    
     col1, col2 = st.sidebar.columns(2)
-    col1.metric("Files Processed", "1.2K")
-    col2.metric("Languages Detected", "25+")
+    col1.metric("Files Processed", f"{st.session_state.transcription_count}")
+    col2.metric("Unique Languages", f"{len(st.session_state.languages_detected)}")
+    
+    if st.session_state.languages_detected:
+        st.sidebar.markdown("#### 🌐 Detected Languages")
+        languages = ", ".join(sorted(st.session_state.languages_detected))
+        st.sidebar.markdown(f"<div style='font-size: 0.9em; color: #666;'>{languages}</div>", unsafe_allow_html=True)
+    
+    if st.session_state.total_audio_duration > 0:
+        st.sidebar.markdown("#### ⏱️ Total Audio Processed")
+        duration_min = st.session_state.total_audio_duration / 60
+        if duration_min < 1:
+            st.sidebar.markdown(f"<div style='font-size: 0.9em; color: #666;'>{st.session_state.total_audio_duration:.1f} seconds</div>", unsafe_allow_html=True)
+        else:
+            st.sidebar.markdown(f"<div style='font-size: 0.9em; color: #666;'>{duration_min:.1f} minutes</div>", unsafe_allow_html=True)
+
+    # Add system info
+    st.sidebar.markdown("### 💻 System Info")
+    device = "GPU 🚀" if torch.cuda.is_available() else "CPU 💻"
+    st.sidebar.markdown(f"**Processing Unit:** {device}")
+    if torch.cuda.is_available():
+        st.sidebar.markdown(f"**GPU Model:** {torch.cuda.get_device_name(0)}")
 
 def main():
     set_page_config()
@@ -196,6 +230,12 @@ def main():
 
             # Clean up
             os.unlink(audio_path)
+
+            # Update session state
+            st.session_state.transcription_count += 1
+            st.session_state.languages_detected.add(result['language'])
+            audio_duration = len(result['audio_data'])/16000  # Calculate audio duration
+            st.session_state.total_audio_duration += audio_duration
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
