@@ -1,8 +1,10 @@
 import streamlit as st
 import os
 from pathlib import Path
-from whisper_transcription import WhisperTranscriber, record_audio
+from whisper_transcription import WhisperTranscriber
 import tempfile
+from io import BytesIO
+import numpy as np
 
 def main():
     st.title("🎙️ Whisper Audio Transcription")
@@ -20,40 +22,20 @@ def main():
         index=1  # Default to "base" model
     )
 
-    # Create tabs for different input methods
-    tab1, tab2 = st.tabs(["Upload Audio", "Record Audio"])
+    # File uploader
+    st.header("Upload Audio File")
+    uploaded_file = st.file_uploader("Choose an audio file", type=['mp3', 'wav', 'm4a'])
+    
+    if uploaded_file:
+        with st.spinner("Processing audio file..."):
+            # Save uploaded file to temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                audio_path = tmp_file.name
 
-    with tab1:
-        st.header("Upload Audio File")
-        uploaded_file = st.file_uploader("Choose an audio file", type=['mp3', 'wav', 'm4a'])
-        
-        if uploaded_file:
-            with st.spinner("Processing audio file..."):
-                # Save uploaded file to temporary location
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    audio_path = tmp_file.name
-
-            process_audio(audio_path, model_size)
-            # Clean up temporary file
-            os.unlink(audio_path)
-
-    with tab2:
-        st.header("Record Audio")
-        duration = st.slider("Recording Duration (seconds)", min_value=1, max_value=30, value=5)
-        
-        if st.button("Start Recording"):
-            with st.spinner(f"Recording for {duration} seconds..."):
-                # Create audio directory if it doesn't exist
-                audio_directory = "audio_samples"
-                Path(audio_directory).mkdir(parents=True, exist_ok=True)
-                audio_path = os.path.join(audio_directory, "recording.wav")
-                
-                # Record audio
-                record_audio(audio_path, duration=duration)
-                st.success("Recording completed!")
-                
-                process_audio(audio_path, model_size)
+        process_audio(audio_path, model_size)
+        # Clean up temporary file
+        os.unlink(audio_path)
 
 def process_audio(audio_path, model_size):
     """Process the audio file and display results"""

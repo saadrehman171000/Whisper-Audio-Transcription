@@ -6,6 +6,4 @@ scipy
 numpy
 soundfile
 pathlib
-python-sounddevice
-python-dotenv
 ffmpeg-python 
