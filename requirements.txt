@@ -6,7 +6,6 @@ scipy
 numpy
 soundfile
 pathlib
-portaudio19-dev
 python-sounddevice
 python-dotenv
 ffmpeg-python 
