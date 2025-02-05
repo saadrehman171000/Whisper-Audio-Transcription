@@ -1,8 +1,12 @@
 streamlit
-whisper
+openai-whisper
 torch
 sounddevice
 scipy
 numpy
 soundfile
-pathlib 
+pathlib
+portaudio19-dev
+python-sounddevice
+python-dotenv
+ffmpeg-python 

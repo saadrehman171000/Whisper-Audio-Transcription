@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Audio files
+audio_samples/
+*.wav
+*.mp3
+*.m4a
+
+# OS generated files
+.DS_Store
+.Spotlight-V100
+.Trashes 
