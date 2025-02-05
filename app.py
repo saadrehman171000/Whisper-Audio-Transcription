@@ -184,6 +184,14 @@ def main():
                     tmp_file.write(uploaded_file.getvalue())
                     audio_path = tmp_file.name
 
+                # Calculate audio duration first
+                audio_duration = 0  # Default value
+                try:
+                    audio_data, sample_rate = sf.read(audio_path)
+                    audio_duration = len(audio_data) / sample_rate
+                except Exception as e:
+                    st.warning("Could not calculate audio duration")
+
                 # Load model with progress tracking
                 if (not st.session_state.transcriber.current_model or 
                     getattr(st.session_state, 'current_model_size', None) != model_size):
@@ -256,14 +264,7 @@ def main():
             # Update session state
             st.session_state.transcription_count += 1
             st.session_state.languages_detected.add(result['language'])
-            
-            # Calculate audio duration from the audio file
-            try:
-                audio_data, sample_rate = sf.read(audio_path)
-                audio_duration = len(audio_data) / sample_rate
-                st.session_state.total_audio_duration += audio_duration
-            except Exception as e:
-                st.warning("Could not calculate audio duration")
+            st.session_state.total_audio_duration += audio_duration
 
             # Add download buttons
             col1, col2 = st.columns(2)
