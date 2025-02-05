@@ -1,10 +1,7 @@
 import streamlit as st
 import os
-from pathlib import Path
-from whisper_transcription import WhisperTranscriber
 import tempfile
-from io import BytesIO
-import numpy as np
+from whisper_transcription import WhisperTranscriber
 
 def main():
     st.title("🎙️ Whisper Audio Transcription")
@@ -27,57 +24,54 @@ def main():
     uploaded_file = st.file_uploader("Choose an audio file", type=['mp3', 'wav', 'm4a'])
     
     if uploaded_file:
-        with st.spinner("Processing audio file..."):
-            # Save uploaded file to temporary location
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                audio_path = tmp_file.name
+        try:
+            with st.spinner("Processing audio file..."):
+                # Save uploaded file to temporary location
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    audio_path = tmp_file.name
 
-        process_audio(audio_path, model_size)
-        # Clean up temporary file
-        os.unlink(audio_path)
+                # Load model if needed
+                if (not st.session_state.transcriber.current_model or 
+                    getattr(st.session_state, 'current_model_size', None) != model_size):
+                    with st.spinner(f"Loading {model_size} model..."):
+                        st.session_state.transcriber.load_model(model_size)
+                        st.session_state.current_model_size = model_size
 
-def process_audio(audio_path, model_size):
-    """Process the audio file and display results"""
-    try:
-        # Load model if not already loaded or if model size changed
-        if (not st.session_state.transcriber.current_model or 
-            getattr(st.session_state, 'current_model_size', None) != model_size):
-            with st.spinner(f"Loading {model_size} model..."):
-                st.session_state.transcriber.load_model(model_size)
-                st.session_state.current_model_size = model_size
+                # Transcribe audio
+                with st.spinner("Transcribing audio..."):
+                    result = st.session_state.transcriber.transcribe_audio(audio_path)
 
-        # Transcribe audio
-        with st.spinner("Transcribing audio..."):
-            result = st.session_state.transcriber.transcribe_audio(audio_path)
+                # Display results
+                st.subheader("Transcription Results")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Detected Language:**")
+                    st.write(result['language'])
+                with col2:
+                    st.write("**Processing Time:**")
+                    st.write(f"{result['transcription_time']:.2f} seconds")
 
-        # Display results
-        st.subheader("Transcription Results")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Detected Language:**")
-            st.write(result['language'])
-        with col2:
-            st.write("**Processing Time:**")
-            st.write(f"{result['transcription_time']:.2f} seconds")
+                st.write("**Transcribed Text:**")
+                st.write(result['text'])
 
-        st.write("**Transcribed Text:**")
-        st.write(result['text'])
+                # Handle translation for non-English audio
+                if result['language'] != 'en':
+                    with st.spinner("Translating to English..."):
+                        translation = st.session_state.transcriber.current_model.transcribe(
+                            audio_path,
+                            task="translate",
+                            fp16=False,
+                            verbose=None
+                        )
+                        st.write("**English Translation:**")
+                        st.write(translation["text"])
 
-        # Handle translation for non-English audio
-        if result['language'] != 'en':
-            with st.spinner("Translating to English..."):
-                translation = st.session_state.transcriber.current_model.transcribe(
-                    audio_path,
-                    task="translate",
-                    fp16=False,
-                    verbose=None
-                )
-                st.write("**English Translation:**")
-                st.write(translation["text"])
+            # Clean up temporary file
+            os.unlink(audio_path)
 
-    except Exception as e:
-        st.error(f"Error processing audio: {str(e)}")
+        except Exception as e:
+            st.error(f"Error processing audio: {str(e)}")
 
 if __name__ == "__main__":
     main() 

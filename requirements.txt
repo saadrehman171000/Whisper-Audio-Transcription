@@ -1,9 +1,6 @@
 streamlit
 openai-whisper
 torch
-sounddevice
-scipy
 numpy
-soundfile
-pathlib
-ffmpeg-python 
+scipy
+soundfile 
