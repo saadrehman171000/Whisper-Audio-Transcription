@@ -15,10 +15,7 @@ class WhisperTranscriber:
         # Dictionary of available models with their parameters and relative speeds
         self.available_models = {
             "tiny": {"parameters": "39M", "relative_speed": "32x"},
-            "base": {"parameters": "74M", "relative_speed": "16x"},
-            "small": {"parameters": "244M", "relative_speed": "6x"},
-            "medium": {"parameters": "769M", "relative_speed": "2x"},
-            "large": {"parameters": "1550M", "relative_speed": "1x"}
+            "base": {"parameters": "74M", "relative_speed": "16x"}
         }
         self.current_model = None  # Will hold the loaded model
         # Use GPU if available, otherwise CPU

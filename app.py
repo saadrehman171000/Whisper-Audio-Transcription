@@ -11,6 +11,9 @@ def main():
     if 'transcriber' not in st.session_state:
         st.session_state.transcriber = WhisperTranscriber()
 
+    # Add this near the top of your main() function
+    st.sidebar.info('💡 Tip: The "base" model provides better accuracy than "tiny" but takes slightly longer to load.')
+
     # Model selection
     model_size = st.selectbox(
         "Select Whisper Model",
@@ -34,8 +37,10 @@ def main():
                 # Load model if needed
                 if (not st.session_state.transcriber.current_model or 
                     getattr(st.session_state, 'current_model_size', None) != model_size):
-                    with st.spinner(f"Loading {model_size} model..."):
+                    with st.spinner(f"Loading {model_size} model... This may take a minute for larger models"):
+                        progress_bar = st.progress(0)
                         st.session_state.transcriber.load_model(model_size)
+                        progress_bar.progress(100)
                         st.session_state.current_model_size = model_size
 
                 # Transcribe audio
