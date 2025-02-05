@@ -209,7 +209,16 @@ def main():
 
                 # Transcribe with progress indicator
                 with st.spinner("✨ Magic happening... Transcribing your audio"):
-                    result = st.session_state.transcriber.transcribe_audio(audio_path)
+                    try:
+                        result = st.session_state.transcriber.transcribe_audio(audio_path)
+                    except Exception as e:
+                        st.error(f"❌ Transcription Error: {str(e)}")
+                        st.warning("Please try a different audio file or model size.")
+                        return  # Exit early if transcription fails
+
+                if not result or 'text' not in result:
+                    st.error("❌ Failed to get transcription results")
+                    return
 
                 # Display results in a clean format
                 st.markdown("---")
