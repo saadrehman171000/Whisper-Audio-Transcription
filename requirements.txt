@@ -4,4 +4,10 @@ torch>=2.0.0,<3.0.0
 numpy>=1.21.0
 scipy>=1.7.0
 soundfile>=0.12.1
-ffmpeg-python>=0.2.0 
+ffmpeg-python>=0.2.0
+librosa==0.10.1
+sounddevice==0.4.5
+gTTS==2.3.1
+textblob==0.17.1
+resampy
+google-generativeai==0.3.1 

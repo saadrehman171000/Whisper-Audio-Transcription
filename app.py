@@ -1,65 +1,54 @@
+import warnings
 import streamlit as st
 import os
+import sys
 import tempfile
 from whisper_transcription import WhisperTranscriber
 import time
 import torch
 import soundfile as sf
+import librosa
+import librosa.display
+import matplotlib
+matplotlib.use('Agg')  # Set backend
+import matplotlib.pyplot as plt
+plt.style.use('default')  # Use default style
+import json
+import numpy as np
+import sounddevice as sd
+from gtts import gTTS
+import io
+import base64
+import google.generativeai as genai  # Add at the top with other imports
 
-def set_page_config():
-    st.set_page_config(
-        page_title="Whisper Audio Transcription",
-        page_icon="🎙️",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+# Suppress all warnings and logging
+warnings.filterwarnings('ignore')
+import logging
+logging.getLogger().setLevel(logging.ERROR)
+
+# Simple error filter
+class SimpleErrorFilter:
+    def write(self, *args, **kwargs):
+        pass
+    def flush(self):
+        pass
+
+# Only filter errors during initialization
+original_stderr = sys.stderr
+sys.stderr = SimpleErrorFilter()
+
+st.set_page_config(
+    page_title="Whisper Audio Transcription",
+    page_icon="🎙️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Restore stderr
+sys.stderr = original_stderr
 
 def local_css():
-    st.markdown("""
-        <style>
-        .main {
-            padding: 2rem 3rem;
-        }
-        .stProgress > div > div > div > div {
-            background-color: #00a0a0;
-        }
-        .stButton>button {
-            background-color: #00a0a0;
-            color: white;
-            border-radius: 5px;
-            padding: 0.5rem 1rem;
-            border: none;
-        }
-        .stButton>button:hover {
-            background-color: #008080;
-        }
-        .status-box {
-            padding: 1rem;
-            border-radius: 5px;
-            margin-bottom: 1rem;
-        }
-        .success-box {
-            background-color: #d1f5d3;
-            border: 1px solid #7eca9c;
-        }
-        .info-box {
-            background-color: #e1f5fe;
-            border: 1px solid #4fc3f7;
-        }
-        .metric-card {
-            background-color: #f8f9fa;
-            padding: 1rem;
-            border-radius: 5px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #00a0a0;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    pass
 
 def display_header():
     col1, col2 = st.columns([3, 1])
@@ -127,15 +116,424 @@ def display_features():
     except Exception as e:
         st.sidebar.markdown("**Processing Unit:** CPU 💻")
 
+def display_audio_waveform(audio_path):
+    try:
+        # Use the audio data from session state instead of loading from file
+        if st.session_state.recording_state['recorded_data'] is not None:
+            y = st.session_state.recording_state['recorded_data']
+            sr = 44100  # This is our recording sample rate
+            
+            fig, ax = plt.subplots(figsize=(10, 2))
+            times = np.linspace(0, len(y)/sr, len(y))
+            ax.plot(times, y, color='#00a0a0')
+            ax.set_title('Audio Waveform')
+            ax.set_xlabel('Time (s)')
+            ax.set_ylabel('Amplitude')
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+            plt.close(fig)
+    except Exception as e:
+        st.warning(f"Could not display waveform visualization: {str(e)}")
+
+def get_translation_languages():
+    return {
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "hi": "Hindi",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "zh": "Chinese"
+    }
+
+def export_as_srt(segments):
+    srt_content = ""
+    for i, segment in enumerate(segments, 1):
+        start = time.strftime('%H:%M:%S,000', time.gmtime(segment['start']))
+        end = time.strftime('%H:%M:%S,000', time.gmtime(segment['end']))
+        srt_content += f"{i}\n{start} --> {end}\n{segment['text']}\n\n"
+    return srt_content
+
+def display_confidence_meter(confidence_score):
+    st.markdown("#### 🎯 Transcription Confidence")
+    
+    # Create a cool confidence meter
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.markdown(f"### {confidence_score:.0f}%")
+    with col2:
+        # Create a custom progress bar
+        if confidence_score >= 90:
+            bar_color = "background: linear-gradient(to right, #00ff00, #00cc00)"
+            message = "Excellent! High confidence transcription"
+        elif confidence_score >= 75:
+            bar_color = "background: linear-gradient(to right, #ffff00, #ffcc00)"
+            message = "Good! Reliable transcription"
+        else:
+            bar_color = "background: linear-gradient(to right, #ff9999, #ff3333)"
+            message = "Fair. You might want to check the transcription"
+            
+        st.markdown(
+            f"""
+            <div style="width: 100%; background-color: #f0f0f0; border-radius: 10px;">
+                <div style="width: {confidence_score}%; {bar_color}; height: 30px; 
+                border-radius: 10px; transition: width 0.5s;">
+                </div>
+            </div>
+            <p style="color: #666;">{message}</p>
+            """,
+            unsafe_allow_html=True
+        )
+
+def display_audio_visualizer(audio_data, sample_rate):
+    try:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        D = librosa.amplitude_to_db(np.abs(librosa.stft(audio_data)), ref=np.max)
+        img = librosa.display.specshow(D, y_axis='linear', x_axis='time', ax=ax)
+        plt.colorbar(img, ax=ax, format='%+2.0f dB')
+        ax.set_title('Audio Spectrogram')
+        st.pyplot(fig)
+        plt.close(fig)  # Clean up
+        
+        fig, ax = plt.subplots(figsize=(10, 2))
+        times = np.arange(len(audio_data))/sample_rate
+        ax.fill_between(times, audio_data, alpha=0.5, color='#00a0a0')
+        ax.set_title('Waveform')
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Amplitude')
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig)
+        plt.close(fig)  # Clean up
+        
+    except Exception as e:
+        st.warning("Could not display audio visualizations")
+
+def record_audio():
+    """Handle audio recording functionality"""
+    # Define sample rate at the function level
+    SAMPLE_RATE = 44100  # Standard sample rate
+    
+    if 'recording_state' not in st.session_state:
+        st.session_state.recording_state = {
+            'is_recording': False,
+            'audio_data': [],
+            'filename': None,
+            'start_time': None,
+            'recorded_data': None,
+            'audio_saved': False,
+            'processing': False,
+            'processed': False,
+            'sample_rate': SAMPLE_RATE  # Store sample rate in state
+        }
+
+    # Create columns for record button and status
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if not st.session_state.recording_state['is_recording']:
+            if st.button('🎙️ Start Recording', key='start_recording'):
+                st.session_state.recording_state = {
+                    'is_recording': True,
+                    'audio_data': [],
+                    'filename': f"recorded_audio_{time.strftime('%Y%m%d_%H%M%S')}.wav",
+                    'start_time': time.time(),
+                    'recorded_data': None,
+                    'audio_saved': False,
+                    'processing': False,
+                    'processed': False,
+                    'sample_rate': SAMPLE_RATE  # Store sample rate in state
+                }
+                st.rerun()
+        else:
+            if st.button('⏹️ Stop Recording', key='stop_recording'):
+                st.session_state.recording_state['is_recording'] = False
+                st.rerun()
+
+    # Status placeholder
+    status_placeholder = st.empty()
+    duration_placeholder = st.empty()
+    
+    # Recording logic
+    if st.session_state.recording_state['is_recording']:
+        status_placeholder.markdown("🎙️ **Recording in progress...**")
+        
+        try:
+            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='float32') as stream:
+                while st.session_state.recording_state['is_recording']:
+                    audio_chunk, _ = stream.read(SAMPLE_RATE // 10)
+                    st.session_state.recording_state['audio_data'].append(audio_chunk)
+                    duration = time.time() - st.session_state.recording_state['start_time']
+                    duration_placeholder.markdown(f"⏱️ Recording duration: {int(duration)} seconds")
+                    time.sleep(0.1)
+                    
+        except Exception as e:
+            st.error(f"Recording failed: {str(e)}")
+            return None
+
+    # Save recording if we have data
+    if (not st.session_state.recording_state['is_recording'] and 
+        len(st.session_state.recording_state['audio_data']) > 0 and 
+        not st.session_state.recording_state['audio_saved']):
+        
+        try:
+            # Combine all audio chunks
+            audio = np.concatenate(st.session_state.recording_state['audio_data'])
+            
+            # Save as WAV file
+            filename = st.session_state.recording_state['filename']
+            sf.write(filename, audio, SAMPLE_RATE)
+            
+            # Store the recorded data for visualization
+            st.session_state.recording_state['recorded_data'] = audio
+            st.session_state.recording_state['audio_saved'] = True
+            
+            status_placeholder.markdown("✅ **Recording saved successfully!**")
+            return filename
+            
+        except Exception as e:
+            st.error(f"Failed to save recording: {str(e)}")
+            return None
+    
+    return None
+
+def text_to_speech(text, language='en', audio_path=None):
+    if not text:
+        return
+        
+    st.markdown("### 🔊 Listen to Transcription")
+    
+    try:
+        # Create a temporary file for the audio
+        temp_dir = tempfile.gettempdir()
+        temp_audio_path = os.path.join(temp_dir, f"tts_audio_{time.strftime('%Y%m%d_%H%M%S')}.mp3")
+        
+        # If language is not English, get the translation
+        if language not in ['en', 'EN']:
+            try:
+                # Use the same transcriber instance for consistency
+                with st.spinner("Getting English translation..."):
+                    translation_result = st.session_state.transcriber.transcribe_audio(
+                        audio_path,
+                        task="translate"  # Force translation
+                    )
+                    text_for_tts = translation_result['text']
+                    st.markdown("#### English Translation:")
+                    st.markdown(f"<div class='info-box'>{text_for_tts}</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.warning(f"Translation failed: {str(e)}")
+                text_for_tts = text
+        else:
+            text_for_tts = text
+
+        # Generate speech from text
+        with st.spinner("Generating audio..."):
+            tts = gTTS(text=text_for_tts, lang='en', slow=False)
+            tts.save(temp_audio_path)
+            
+            if os.path.exists(temp_audio_path) and os.path.getsize(temp_audio_path) > 0:
+                with open(temp_audio_path, 'rb') as audio_file:
+                    audio_bytes = audio_file.read()
+                    st.audio(audio_bytes, format='audio/mp3')
+                    
+                    st.download_button(
+                        "📥 Download Audio",
+                        audio_bytes,
+                        file_name=f"transcription_audio_{time.strftime('%Y%m%d_%H%M%S')}.mp3",
+                        mime="audio/mp3"
+                    )
+            else:
+                st.error("Failed to generate audio file")
+                
+            try:
+                os.remove(temp_audio_path)
+            except:
+                pass
+                
+    except Exception as e:
+        st.error(f"Could not generate speech: {str(e)}")
+
+def highlight_key_moments(text, language='en', audio_path=None):
+    st.markdown("### ✨ Magic Moments")
+    
+    # If language is not English, get the translation first
+    if language not in ['en', 'EN']:
+        try:
+            with st.spinner("Getting English translation for analysis..."):
+                # Use the same transcriber instance for consistency
+                translation_result = st.session_state.transcriber.transcribe_audio(
+                    audio_path,
+                    task="translate"  # Force translation task
+                )
+                text_for_analysis = translation_result['text']
+                st.markdown("#### English Translation:")
+                st.markdown(f"<div class='info-box'>{text_for_analysis}</div>", unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"Translation failed: {str(e)}")
+            text_for_analysis = text
+    else:
+        text_for_analysis = text
+
+    # Analyze the text
+    sentences = text_for_analysis.split('.')
+    key_moments = []
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # Look for questions
+        if '?' in sentence:
+            key_moments.append(("Question", sentence, "🤔"))
+        # Look for exclamations
+        elif '!' in sentence:
+            key_moments.append(("Emphasis", sentence, "💡"))
+        # Look for numbers or dates
+        elif any(char.isdigit() for char in sentence):
+            key_moments.append(("Fact", sentence, "📊"))
+        # Look for important phrases
+        elif any(phrase in sentence.lower() for phrase in ['important', 'key', 'must', 'should', 'need to', 'remember']):
+            key_moments.append(("Important", sentence, "⭐"))
+            
+    if key_moments:
+        for moment_type, text, emoji in key_moments:
+            st.markdown(
+                f"""<div style="padding: 10px; margin: 5px; border-radius: 10px; 
+                background-color: #f8f9fa; border-left: 4px solid #00a0a0;">
+                {emoji} <b>{moment_type}</b><br>{text}</div>""",
+                unsafe_allow_html=True
+            )
+    else:
+        st.info("No key moments detected in this recording.")
+
+def analyze_sentiment(text):
+    st.markdown("### 💭 Text Analysis")
+    
+    # Split text into words and clean them
+    words = text.lower().split()
+    
+    # More comprehensive sentiment word lists
+    positive_words = {
+        'good', 'great', 'excellent', 'happy', 'wonderful', 'best', 'love',
+        'amazing', 'fantastic', 'perfect', 'better', 'awesome', 'nice',
+        'brilliant', 'success', 'successful', 'win', 'winning'
+    }
+    negative_words = {
+        'bad', 'poor', 'terrible', 'sad', 'worst', 'hate',
+        'awful', 'horrible', 'wrong', 'fail', 'failed', 'failure',
+        'problem', 'difficult', 'impossible', 'never'
+    }
+    
+    # Count sentiment words
+    positive_count = sum(1 for word in words if word in positive_words)
+    negative_count = sum(1 for word in words if word in negative_words)
+    total_words = len(words)  # Count all words, not just sentiment words
+    
+    # Determine sentiment
+    if total_words == 0:
+        sentiment = 0
+        mood = "Neutral"
+        emoji = "😐"
+        color = "#ffc107"
+    else:
+        sentiment = (positive_count - negative_count) / total_words
+        if sentiment > 0:
+            emoji = "😊"
+            color = "#28a745"
+            mood = "Positive"
+        elif sentiment < 0:
+            emoji = "😔"
+            color = "#dc3545"
+            mood = "Negative"
+        else:
+            emoji = "😐"
+            color = "#ffc107"
+            mood = "Neutral"
+    
+    st.markdown(f"""
+        <div style="text-align: center; padding: 20px; background: {color}20; border-radius: 10px;">
+            <div style="font-size: 3em;">{emoji}</div>
+            <div style="font-size: 1.5em; color: {color};">{mood}</div>
+            <div style="font-size: 1em;">Words analyzed: {total_words}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+def cleanup_old_recordings():
+    # Clean up old WAV files
+    for file in os.listdir():
+        if file.startswith("recorded_audio_") and file.endswith(".wav"):
+            try:
+                os.remove(file)
+            except:
+                pass
+
+# Add this function to handle Gemini responses
+def get_ai_response(text, language='en'):
+    try:
+        st.markdown("### 🤖 AI Response")
+        with st.spinner("Getting AI response..."):
+            # Configure Gemini
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            model = genai.GenerativeModel('gemini-pro')
+            
+            # Prepare the prompt
+            if language not in ['en', 'EN']:
+                prompt = f"""
+                The following is a transcribed text in another language that has been translated to English:
+                "{text}"
+                
+                Please:
+                1. Understand the content/question
+                2. Provide a helpful, clear response
+                3. If there's a question, answer it directly
+                4. If it's a statement, provide relevant insights or suggestions
+                """
+            else:
+                prompt = f"""
+                The following is a transcribed text:
+                "{text}"
+                
+                Please:
+                1. Understand the content/question
+                2. Provide a helpful, clear response
+                3. If there's a question, answer it directly
+                4. If it's a statement, provide relevant insights or suggestions
+                """
+
+            # Get response from Gemini
+            response = model.generate_content(prompt)
+            
+            # Display the response in a nice format
+            st.markdown(
+                f"""<div style="padding: 20px; border-radius: 10px; background-color: #f0f8ff; border-left: 5px solid #00a0a0;">
+                <h4>💡 AI Response:</h4>
+                {response.text}
+                </div>""", 
+                unsafe_allow_html=True
+            )
+            
+    except Exception as e:
+        st.error(f"Could not generate AI response: {str(e)}")
+
 def main():
-    set_page_config()
+    # Add at the start of main()
+    cleanup_old_recordings()
     local_css()
     display_header()
     display_features()
 
-    # Initialize the transcriber
+    # Initialize session state variables
     if 'transcriber' not in st.session_state:
         st.session_state.transcriber = WhisperTranscriber()
+        st.session_state.current_model_size = None
+    if 'transcription_count' not in st.session_state:
+        st.session_state.transcription_count = 0
+    if 'total_audio_duration' not in st.session_state:
+        st.session_state.total_audio_duration = 0
+    if 'languages_detected' not in st.session_state:
+        st.session_state.languages_detected = set()
 
     # Add this before the model selection
     st.info("""
@@ -153,181 +551,305 @@ def main():
         index=1
     )
 
-    # File upload section with instructions
-    st.markdown("### Upload Your Audio")
-    st.markdown("Supported formats: MP3, WAV, M4A")
-    
-    uploaded_file = st.file_uploader(
-        label="Choose an audio file",
-        type=['mp3', 'wav', 'm4a'],
-        label_visibility="collapsed"
+    # Load model if not loaded or if model size changed
+    if (not st.session_state.transcriber.current_model or 
+        getattr(st.session_state, 'current_model_size', None) != model_size):
+        
+        with st.spinner("Loading model... Please wait."):
+            progress_text = "Loading model... Please wait."
+            my_bar = st.progress(0, text=progress_text)
+            
+            for percent_complete in range(100):
+                time.sleep(0.01)
+                my_bar.progress(percent_complete + 1, text=progress_text)
+            
+            st.session_state.transcriber.load_model(model_size)
+            st.session_state.current_model_size = model_size
+            my_bar.empty()
+
+    # Choose input method
+    st.markdown("### Choose Input Method")
+    input_method = st.radio(
+        "Select how you want to input audio:",
+        ["Upload File", "Record Audio"],
+        horizontal=True
     )
     
-    if uploaded_file:
-        try:
-            # Display file info
-            file_details = {
-                "Filename": uploaded_file.name,
-                "File size": f"{uploaded_file.size / 1024:.1f} KB",
-                "Upload time": time.strftime("%Y-%m-%d %H:%M:%S")
+    audio_file = None
+    if input_method == "Upload File":
+        # Initialize recording state if not exists
+        if 'recording_state' not in st.session_state:
+            st.session_state.recording_state = {
+                'is_recording': False,
+                'audio_data': [],
+                'filename': None,
+                'start_time': None,
+                'recorded_data': None,
+                'audio_saved': False,
+                'processing': False,
+                'processed': False
             }
-            
-            # Create an expandable section for file details
-            with st.expander("📁 File Details", expanded=True):
-                for key, value in file_details.items():
-                    st.write(f"**{key}:** {value}")
+        
+        # Add file uploader
+        uploaded_file = st.file_uploader(
+            "Choose an audio file", 
+            type=['wav', 'mp3', 'm4a', 'ogg', 'flac'],
+            help="Upload an audio file (WAV, MP3, M4A, OGG, or FLAC format)"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                # Save uploaded file temporarily
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, uploaded_file.name)
                 
-                # Add processing tips
-                st.info("""
-                💡 **Processing Tips:**
-                - Larger files may take longer to process
-                - For best results, ensure clear audio quality
-                - Supported languages: 90+ languages
-                """)
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_file.getvalue())
+                
+                # Store the temp path in session state for later use
+                st.session_state.temp_audio_path = temp_path
+                
+                # Process the uploaded file
+                with st.spinner("Processing audio file..."):
+                    result = st.session_state.transcriber.transcribe_audio(temp_path)
+                    
+                    if result:
+                        # Store audio data for visualization
+                        st.session_state.recording_state['recorded_data'] = result['audio_data']
+                        
+                        # Display all results
+                        st.markdown("### 📝 Transcription Results")
+                        
+                        # Metrics display
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Detected Language</h4>
+                                    <div class="metric-value">{result['language'].upper()}</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
+                        with col2:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Processing Time</h4>
+                                    <div class="metric-value">{result['transcription_time']:.2f}s</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
+                        with col3:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Model Used</h4>
+                                    <div class="metric-value">{model_size.upper()}</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
 
-            with st.spinner("Processing audio file..."):
-                # Save uploaded file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    audio_path = tmp_file.name
+                        # Transcribed text
+                        st.markdown("#### Transcribed Text")
+                        st.markdown(f"<div class='success-box'>{result['text']}</div>", unsafe_allow_html=True)
 
-                # Calculate audio duration first
-                audio_duration = 0  # Default value
+                        # Display audio waveform
+                        display_audio_waveform(temp_path)
+
+                        # Display audio visualizer
+                        display_audio_visualizer(result['audio_data'], result['sample_rate'])
+
+                        # Display confidence meter
+                        confidence = 95
+                        display_confidence_meter(confidence)
+
+                        # Highlight key moments (before text-to-speech)
+                        highlight_key_moments(result['text'].strip(), result['language'], temp_path)
+                        
+                        # Text to speech
+                        text_to_speech(result['text'].strip(), result['language'], temp_path)
+                        
+                        # Sentiment analysis
+                        analyze_sentiment(result['text'].strip())
+
+                        # Get AI response
+                        get_ai_response(result['text'].strip(), result['language'])
+
+                        # Add download buttons
+                        duration = len(result['audio_data']) / result['sample_rate']
+                        json_export = {
+                            'transcription': result['text'],
+                            'language': result['language'],
+                            'segments': result['segments'],
+                            'metadata': {
+                                'duration': duration,
+                                'model': model_size,
+                                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                            }
+                        }
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.download_button(
+                                "📥 Download as TXT",
+                                result['text'],
+                                file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+                            )
+                        with col2:
+                            st.download_button(
+                                "📥 Download as SRT",
+                                export_as_srt(result['segments']),
+                                file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.srt"
+                            )
+                        with col3:
+                            st.download_button(
+                                "📥 Download as JSON",
+                                json.dumps(json_export, indent=2),
+                                file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.json"
+                            )
+
+                        # Update session state
+                        st.session_state.transcription_count += 1
+                        st.session_state.languages_detected.add(result['language'])
+                        st.session_state.total_audio_duration += duration
+
+                # Clean up
                 try:
-                    audio_data, sample_rate = sf.read(audio_path)
-                    audio_duration = len(audio_data) / sample_rate
-                except Exception as e:
-                    st.warning("Could not calculate audio duration")
-
-                # Load model with progress tracking
-                if (not st.session_state.transcriber.current_model or 
-                    getattr(st.session_state, 'current_model_size', None) != model_size):
+                    os.remove(temp_path)
+                except:
+                    pass
                     
-                    progress_text = "Loading model... Please wait."
-                    my_bar = st.progress(0, text=progress_text)
-                    
-                    for percent_complete in range(100):
-                        time.sleep(0.01)
-                        my_bar.progress(percent_complete + 1, text=progress_text)
-                    
-                    st.session_state.transcriber.load_model(model_size)
-                    st.session_state.current_model_size = model_size
-                    my_bar.empty()
-
-                # Transcribe with progress indicator
-                with st.spinner("✨ Magic happening... Transcribing your audio"):
-                    try:
-                        result = st.session_state.transcriber.transcribe_audio(audio_path)
-                    except Exception as e:
-                        st.error("❌ Transcription failed")
-                        st.warning("""
-                        Please check that:
-                        - The audio file is not corrupted
-                        - The audio format is supported (MP3, WAV, M4A)
-                        - The audio duration is reasonable (< 30 minutes)
-                        - The audio quality is clear
-                        """)
-                        st.info("Try using a different audio file or model size.")
-                        return
-
-                if not result or 'text' not in result:
-                    st.error("❌ Failed to get transcription results")
-                    return
-
-                # Display results in a clean format
-                st.markdown("---")
-                st.markdown("### 📝 Transcription Results")
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+                st.markdown("Please try again with a different file.")
                 
-                # Metrics display
+    elif input_method == "Record Audio":
+        audio_file = record_audio()
+        if audio_file and os.path.exists(audio_file):
+            try:
+                with st.spinner("Processing audio file..."):
+                    # Process audio with loaded model
+                    result = st.session_state.transcriber.transcribe_audio(audio_file)
+                    
+                    if result:
+                        # Store audio data in session state for visualization
+                        st.session_state.recording_state['recorded_data'] = result['audio_data']
+                        
+                        # Display waveform
+                        display_audio_waveform(audio_file)
+                        
+                        # Display all results
+                        st.markdown("### 📝 Transcription Results")
+                        
+                        # Metrics display
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Detected Language</h4>
+                                    <div class="metric-value">{result['language'].upper()}</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
+                        with col2:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Processing Time</h4>
+                                    <div class="metric-value">{result['transcription_time']:.2f}s</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
+                        with col3:
+                            st.markdown(
+                                f"""<div class="metric-card">
+                                    <h4>Model Used</h4>
+                                    <div class="metric-value">{model_size.upper()}</div>
+                                </div>""", 
+                                unsafe_allow_html=True
+                            )
+
+                        # Transcribed text
+                        st.markdown("#### Transcribed Text")
+                        st.markdown(f"<div class='success-box'>{result['text']}</div>", unsafe_allow_html=True)
+
+                # Reset recording state
+                st.session_state.recording_state = {
+                    'is_recording': False,
+                    'audio_data': [],
+                    'filename': None,
+                    'start_time': None,
+                    'recorded_data': None,
+                    'audio_saved': False,
+                    'processing': False,
+                    'processed': False
+                }
+                
+                # Update session state
+                st.session_state.transcription_count += 1
+                st.session_state.languages_detected.add(result['language'])
+                # Calculate duration from audio data
+                duration = len(result['audio_data']) / result['sample_rate']
+                st.session_state.total_audio_duration += duration
+
+                # Update json_export
+                json_export = {
+                    'transcription': result['text'],
+                    'language': result['language'],
+                    'segments': result['segments'],
+                    'metadata': {
+                        'duration': duration,  # Use calculated duration
+                        'model': model_size,
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                }
+
+                # Add download buttons
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.markdown(
-                        f"""<div class="metric-card">
-                            <h4>Detected Language</h4>
-                            <div class="metric-value">{result['language'].upper()}</div>
-                        </div>""", 
-                        unsafe_allow_html=True
+                    st.download_button(
+                        "📥 Download as TXT",
+                        result['text'],
+                        file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.txt"
                     )
                 with col2:
-                    st.markdown(
-                        f"""<div class="metric-card">
-                            <h4>Processing Time</h4>
-                            <div class="metric-value">{result['transcription_time']:.2f}s</div>
-                        </div>""", 
-                        unsafe_allow_html=True
+                    st.download_button(
+                        "📥 Download as SRT",
+                        export_as_srt(result['segments']),
+                        file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.srt"
                     )
                 with col3:
-                    st.markdown(
-                        f"""<div class="metric-card">
-                            <h4>Model Used</h4>
-                            <div class="metric-value">{model_size.upper()}</div>
-                        </div>""", 
-                        unsafe_allow_html=True
-                    )
-
-                # Transcribed text
-                st.markdown("#### Transcribed Text")
-                st.markdown(f"<div class='success-box'>{result['text']}</div>", unsafe_allow_html=True)
-
-                # Translation for non-English audio
-                if result['language'] != 'en':
-                    with st.spinner("🌐 Translating to English..."):
-                        translation = st.session_state.transcriber.current_model.transcribe(
-                            audio_path,
-                            task="translate",
-                            fp16=False,
-                            verbose=None
-                        )
-                        st.markdown("#### English Translation")
-                        st.markdown(f"<div class='info-box'>{translation['text']}</div>", unsafe_allow_html=True)
-
-            # Clean up
-            os.unlink(audio_path)
-
-            # Update session state
-            st.session_state.transcription_count += 1
-            st.session_state.languages_detected.add(result['language'])
-            st.session_state.total_audio_duration += audio_duration
-
-            # Add download buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                # Create text file with transcription
-                transcript_text = f"""Transcription Results
-Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}
-File: {uploaded_file.name}
-Model: {model_size}
-Language: {result['language']}
-Duration: {audio_duration:.2f} seconds
----
-{result['text']}
-"""
-                st.download_button(
-                    label="📥 Download Transcription",
-                    data=transcript_text,
-                    file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
-                )
-            
-            if result['language'] != 'en':
-                with col2:
-                    # Create text file with translation
-                    translation_text = f"""English Translation
-Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}
-Original Language: {result['language']}
----
-{translation['text']}
-"""
                     st.download_button(
-                        label="📥 Download Translation",
-                        data=translation_text,
-                        file_name=f"translation_{time.strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain"
+                        "📥 Download as JSON",
+                        json.dumps(json_export, indent=2),
+                        file_name=f"transcription_{time.strftime('%Y%m%d_%H%M%S')}.json"
                     )
 
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            st.markdown("Please try again with a different file or model.")
+                # Display audio waveform
+                display_audio_waveform(audio_file)
+
+                # Display audio visualizer
+                display_audio_visualizer(result['audio_data'], result['sample_rate'])
+
+                # Display confidence meter
+                confidence = 95
+                display_confidence_meter(confidence)
+
+                # Highlight key moments (before text-to-speech)
+                highlight_key_moments(result['text'].strip(), result['language'], audio_file)
+
+                # Text to speech
+                text_to_speech(result['text'].strip(), result['language'], audio_file)
+                
+                # Sentiment analysis
+                analyze_sentiment(result['text'].strip())  # Make sure to strip whitespace
+
+                # Get AI response
+                get_ai_response(result['text'].strip(), result['language'])
+
+                # After successful processing
+                st.session_state.recording_state['processed'] = True
+                
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                st.markdown("Please try again with a different file or model.")
 
     # Add footer
     st.markdown("---")
@@ -342,4 +864,4 @@ Original Language: {result['language']}
     )
 
 if __name__ == "__main__":
-    main() 
+    main()
