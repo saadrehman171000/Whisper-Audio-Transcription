@@ -65,14 +65,13 @@ class WhisperTranscriber:
                     language=detected_language,
                     task=task,  # This will be either "transcribe" or "translate"
                     fp16=False,
-                    word_timestamps=True,
                     condition_on_previous_text=False,
-                    best_of=5,
-                    beam_size=5,
+                    best_of=1,  # Reduced from 5 to 1
+                    beam_size=1,  # Reduced from 5 to 1
                     temperature=0.0,
                     compression_ratio_threshold=2.4,
                     no_speech_threshold=0.6,
-                    initial_prompt=None  # Remove any previous prompts
+                    initial_prompt=None
                 )
                 
                 transcription_time = time.time() - start_time
