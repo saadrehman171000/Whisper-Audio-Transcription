@@ -357,56 +357,70 @@ def text_to_speech(text, language='en', audio_path=None):
 def highlight_key_moments(text, language='en', audio_path=None):
     st.markdown("### ✨ Magic Moments")
     
-    # If language is not English, get the translation first
-    if language not in ['en', 'EN']:
-        try:
-            with st.spinner("Getting English translation for analysis..."):
-                # Use the same transcriber instance for consistency
-                translation_result = st.session_state.transcriber.transcribe_audio(
-                    audio_path,
-                    task="translate"  # Force translation task
-                )
-                text_for_analysis = translation_result['text']
-                st.markdown("#### English Translation:")
-                st.markdown(f"<div class='info-box'>{text_for_analysis}</div>", unsafe_allow_html=True)
-        except Exception as e:
-            st.warning(f"Translation failed: {str(e)}")
+    try:
+        # If language is not English, get the translation first
+        if language not in ['en', 'EN']:
+            try:
+                with st.spinner("Getting English translation for analysis..."):
+                    # Use cached translation if available
+                    if 'translation_cache' not in st.session_state:
+                        st.session_state.translation_cache = {}
+                    
+                    cache_key = f"{audio_path}_{language}"
+                    if cache_key in st.session_state.translation_cache:
+                        text_for_analysis = st.session_state.translation_cache[cache_key]
+                    else:
+                        # Use the same transcriber instance for consistency
+                        translation_result = st.session_state.transcriber.transcribe_audio(
+                            audio_path,
+                            task="translate"
+                        )
+                        text_for_analysis = translation_result['text']
+                        st.session_state.translation_cache[cache_key] = text_for_analysis
+                    
+                    st.markdown("#### English Translation:")
+                    st.markdown(f"<div class='info-box'>{text_for_analysis}</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.warning(f"Translation failed: {str(e)}")
+                text_for_analysis = text
+        else:
             text_for_analysis = text
-    else:
-        text_for_analysis = text
 
-    # Analyze the text
-    sentences = text_for_analysis.split('.')
-    key_moments = []
-    
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
+        # Analyze the text more efficiently
+        sentences = [s.strip() for s in text_for_analysis.split('.') if s.strip()]
+        key_moments = []
+        
+        # Process all patterns at once
+        for sentence in sentences:
+            moment_type = None
+            emoji = None
             
-        # Look for questions
-        if '?' in sentence:
-            key_moments.append(("Question", sentence, "🤔"))
-        # Look for exclamations
-        elif '!' in sentence:
-            key_moments.append(("Emphasis", sentence, "💡"))
-        # Look for numbers or dates
-        elif any(char.isdigit() for char in sentence):
-            key_moments.append(("Fact", sentence, "📊"))
-        # Look for important phrases
-        elif any(phrase in sentence.lower() for phrase in ['important', 'key', 'must', 'should', 'need to', 'remember']):
-            key_moments.append(("Important", sentence, "⭐"))
+            if '?' in sentence:
+                moment_type, emoji = "Question", "🤔"
+            elif '!' in sentence:
+                moment_type, emoji = "Emphasis", "💡"
+            elif any(char.isdigit() for char in sentence):
+                moment_type, emoji = "Fact", "📊"
+            elif any(phrase in sentence.lower() for phrase in ['important', 'key', 'must', 'should', 'need to', 'remember']):
+                moment_type, emoji = "Important", "⭐"
+                
+            if moment_type:
+                key_moments.append((moment_type, sentence, emoji))
+        
+        # Display results
+        if key_moments:
+            for moment_type, text, emoji in key_moments:
+                st.markdown(
+                    f"""<div style="padding: 10px; margin: 5px; border-radius: 10px; 
+                    background-color: #f8f9fa; border-left: 4px solid #00a0a0;">
+                    {emoji} <b>{moment_type}</b><br>{text}</div>""",
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info("No key moments detected in this recording.")
             
-    if key_moments:
-        for moment_type, text, emoji in key_moments:
-            st.markdown(
-                f"""<div style="padding: 10px; margin: 5px; border-radius: 10px; 
-                background-color: #f8f9fa; border-left: 4px solid #00a0a0;">
-                {emoji} <b>{moment_type}</b><br>{text}</div>""",
-                unsafe_allow_html=True
-            )
-    else:
-        st.info("No key moments detected in this recording.")
+    except Exception as e:
+        st.error(f"Error in Magic Moments analysis: {str(e)}")
 
 def analyze_sentiment(text):
     st.markdown("### 💭 Text Analysis")

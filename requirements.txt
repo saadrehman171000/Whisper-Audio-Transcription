@@ -9,8 +9,9 @@ librosa==0.10.1
 sounddevice==0.4.5
 gTTS==2.3.1
 textblob==0.17.1
-resampy
-google-generativeai==0.3.1
+numba<0.54.0
+llvmlite<0.37.0
 matplotlib>=3.7.0
 pandas>=1.5.0
-scikit-learn>=1.0.0 
+scikit-learn>=1.0.0
+google-generativeai==0.3.1 
