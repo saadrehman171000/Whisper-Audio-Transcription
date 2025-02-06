@@ -38,7 +38,7 @@ A powerful audio transcription application that uses OpenAI's Whisper model to c
 1. Clone the repository:
     ```bash
     git clone https://github.com/saadrehman171000/Whisper-Audio-Transcription.git
-    cd whisper-transcription-app
+    cd Whisper-Audio-Transcription
     ```
 
 2. Install required packages:
