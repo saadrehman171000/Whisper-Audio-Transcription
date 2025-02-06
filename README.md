@@ -110,7 +110,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📞 Support
 
-For support, please open an issue in the GitHub repository or contact [your-email@example.com]
+For support, please open an issue in the GitHub repository or contact saadrehman17100@gmail.com
 
 ---
 Made with ❤️ using OpenAI's Whisper
