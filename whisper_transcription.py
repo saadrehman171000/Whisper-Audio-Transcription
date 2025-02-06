@@ -111,7 +111,7 @@ class WhisperTranscriber:
 
     def _load_audio(self, audio_path):
         try:
-            # Use soundfile instead of librosa for loading
+            # Use soundfile for loading
             audio_data, sample_rate = sf.read(audio_path)
             
             # Convert to float32 and mono if stereo
@@ -121,12 +121,12 @@ class WhisperTranscriber:
             
             # Resample to 16000 Hz if needed
             if sample_rate != 16000:
-                # Calculate number of samples for target length
+                # Use scipy instead of numba
                 target_length = int(len(audio_data) * 16000 / sample_rate)
                 audio_data = scipy.signal.resample(audio_data, target_length).astype(np.float32)
                 sample_rate = 16000
             
-            # Normalize audio (ensure float32)
+            # Normalize audio
             max_value = np.max(np.abs(audio_data))
             if max_value > 0:
                 audio_data = (audio_data / max_value).astype(np.float32)
@@ -134,8 +134,4 @@ class WhisperTranscriber:
             return audio_data, sample_rate
         except Exception as e:
             print(f"Audio loading error details: {str(e)}")
-            print(f"Audio data type: {type(audio_data) if 'audio_data' in locals() else 'Not loaded'}")
-            if 'audio_data' in locals():
-                print(f"Audio data shape: {audio_data.shape}")
-                print(f"Audio data dtype: {audio_data.dtype}")
             raise ValueError(f"Failed to load audio file: {str(e)}")
