@@ -211,92 +211,105 @@ def display_audio_visualizer(audio_data, sample_rate):
         st.warning("Could not display audio visualizations")
 
 def record_audio():
-    """Handle audio recording functionality"""
-    # Define sample rate at the function level
-    SAMPLE_RATE = 44100  # Standard sample rate
-    
-    if 'recording_state' not in st.session_state:
-        st.session_state.recording_state = {
-            'is_recording': False,
-            'audio_data': [],
-            'filename': None,
-            'start_time': None,
-            'recorded_data': None,
-            'audio_saved': False,
-            'processing': False,
-            'processed': False,
-            'sample_rate': SAMPLE_RATE  # Store sample rate in state
-        }
-
-    # Create columns for record button and status
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        if not st.session_state.recording_state['is_recording']:
-            if st.button('🎙️ Start Recording', key='start_recording'):
-                st.session_state.recording_state = {
-                    'is_recording': True,
-                    'audio_data': [],
-                    'filename': f"recorded_audio_{time.strftime('%Y%m%d_%H%M%S')}.wav",
-                    'start_time': time.time(),
-                    'recorded_data': None,
-                    'audio_saved': False,
-                    'processing': False,
-                    'processed': False,
-                    'sample_rate': SAMPLE_RATE  # Store sample rate in state
-                }
-                st.rerun()
-        else:
-            if st.button('⏹️ Stop Recording', key='stop_recording'):
-                st.session_state.recording_state['is_recording'] = False
-                st.rerun()
-
-    # Status placeholder
-    status_placeholder = st.empty()
-    duration_placeholder = st.empty()
-    
-    # Recording logic
-    if st.session_state.recording_state['is_recording']:
-        status_placeholder.markdown("🎙️ **Recording in progress...**")
+    """Record audio from microphone"""
+    try:
+        # Check if we're running on Streamlit Cloud
+        is_cloud = os.getenv('STREAMLIT_RUNTIME_ENV') == 'cloud'
         
-        try:
-            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='float32') as stream:
-                while st.session_state.recording_state['is_recording']:
-                    audio_chunk, _ = stream.read(SAMPLE_RATE // 10)
-                    st.session_state.recording_state['audio_data'].append(audio_chunk)
-                    duration = time.time() - st.session_state.recording_state['start_time']
-                    duration_placeholder.markdown(f"⏱️ Recording duration: {int(duration)} seconds")
-                    time.sleep(0.1)
-                    
-        except Exception as e:
-            st.error(f"Recording failed: {str(e)}")
+        if is_cloud:
+            st.error("⚠️ Live recording is not available on Streamlit Cloud due to security restrictions. Please use the 'Upload File' option instead.")
+            st.info("💡 To use live recording, run this app locally on your computer.")
             return None
+            
+        # Rest of the recording code for local deployment
+        if 'recording_state' not in st.session_state:
+            st.session_state.recording_state = {
+                'is_recording': False,
+                'audio_data': [],
+                'sample_rate': SAMPLE_RATE,
+                'processed': False
+            }
 
-    # Save recording if we have data
-    if (not st.session_state.recording_state['is_recording'] and 
-        len(st.session_state.recording_state['audio_data']) > 0 and 
-        not st.session_state.recording_state['audio_saved']):
+        # Define sample rate at the function level
+        SAMPLE_RATE = 44100  # Standard sample rate
         
-        try:
-            # Combine all audio chunks
-            audio = np.concatenate(st.session_state.recording_state['audio_data'])
+        # Create columns for record button and status
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            if not st.session_state.recording_state['is_recording']:
+                if st.button('🎙️ Start Recording', key='start_recording'):
+                    st.session_state.recording_state = {
+                        'is_recording': True,
+                        'audio_data': [],
+                        'filename': f"recorded_audio_{time.strftime('%Y%m%d_%H%M%S')}.wav",
+                        'start_time': time.time(),
+                        'recorded_data': None,
+                        'audio_saved': False,
+                        'processing': False,
+                        'processed': False,
+                        'sample_rate': SAMPLE_RATE  # Store sample rate in state
+                    }
+                    st.rerun()
+            else:
+                if st.button('⏹️ Stop Recording', key='stop_recording'):
+                    st.session_state.recording_state['is_recording'] = False
+                    st.rerun()
+
+        # Status placeholder
+        status_placeholder = st.empty()
+        duration_placeholder = st.empty()
+        
+        # Recording logic
+        if st.session_state.recording_state['is_recording']:
+            status_placeholder.markdown("🎙️ **Recording in progress...**")
             
-            # Save as WAV file
-            filename = st.session_state.recording_state['filename']
-            sf.write(filename, audio, SAMPLE_RATE)
+            try:
+                with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='float32') as stream:
+                    while st.session_state.recording_state['is_recording']:
+                        audio_chunk, _ = stream.read(SAMPLE_RATE // 10)
+                        st.session_state.recording_state['audio_data'].append(audio_chunk)
+                        duration = time.time() - st.session_state.recording_state['start_time']
+                        duration_placeholder.markdown(f"⏱️ Recording duration: {int(duration)} seconds")
+                        time.sleep(0.1)
+                        
+            except Exception as e:
+                st.error(f"Recording failed: {str(e)}")
+                if "No Default Input Device Available" in str(e):
+                    st.info("💡 Please ensure your microphone is connected and permissions are granted.")
+                return None
+
+        # Save recording if we have data
+        if (not st.session_state.recording_state['is_recording'] and 
+            len(st.session_state.recording_state['audio_data']) > 0 and 
+            not st.session_state.recording_state['audio_saved']):
             
-            # Store the recorded data for visualization
-            st.session_state.recording_state['recorded_data'] = audio
-            st.session_state.recording_state['audio_saved'] = True
-            
-            status_placeholder.markdown("✅ **Recording saved successfully!**")
-            return filename
-            
-        except Exception as e:
-            st.error(f"Failed to save recording: {str(e)}")
-            return None
-    
-    return None
+            try:
+                # Combine all audio chunks
+                audio = np.concatenate(st.session_state.recording_state['audio_data'])
+                
+                # Save as WAV file
+                filename = st.session_state.recording_state['filename']
+                sf.write(filename, audio, SAMPLE_RATE)
+                
+                # Store the recorded data for visualization
+                st.session_state.recording_state['recorded_data'] = audio
+                st.session_state.recording_state['audio_saved'] = True
+                
+                status_placeholder.markdown("✅ **Recording saved successfully!**")
+                return filename
+                
+            except Exception as e:
+                st.error(f"Failed to save recording: {str(e)}")
+                return None
+        
+        return None
+
+    except Exception as e:
+        st.error(f"Recording failed: {str(e)}")
+        if "No Default Input Device Available" in str(e):
+            st.info("💡 Please ensure your microphone is connected and permissions are granted.")
+        return None
 
 def text_to_speech(text, language='en', audio_path=None):
     if not text:
