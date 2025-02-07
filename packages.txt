@@ -13,4 +13,6 @@ libfreetype6-dev
 liblcms2-dev
 libwebp-dev
 python3-pil
-zlib1g-dev 
+zlib1g-dev
+python3-pyaudio
+alsa-utils 

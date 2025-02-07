@@ -224,29 +224,22 @@ def record_audio():
         # Define sample rate at the function level
         SAMPLE_RATE = 44100  # Standard sample rate
 
-        # Initialize sounddevice
+        # Initialize audio system
         try:
-            sd._terminate()
-            sd._initialize()
-        except:
-            pass
-
-        # Check available audio devices
-        try:
-            devices = sd.query_devices()
-            input_devices = [d for d in devices if d['max_input_channels'] > 0]
+            import pyaudio
+            p = pyaudio.PyAudio()
             
-            if not input_devices:
-                st.error("❌ No input devices found")
-                st.info("💡 Please ensure your microphone is connected and permissions are granted.")
-                return None
-
-            # Use the first available input device
-            device_id = input_devices[0]['index']
-            st.success(f"🎤 Using input device: {input_devices[0]['name']}")
-
+            # Get default input device info
+            default_input = p.get_default_input_device_info()
+            st.success(f"🎤 Using input device: {default_input['name']}")
+            
+            # Initialize sounddevice with PyAudio info
+            sd.default.device = default_input['index']
+            sd.default.samplerate = SAMPLE_RATE
+            sd.default.channels = 1
+            
         except Exception as e:
-            st.error(f"❌ Error detecting audio devices: {str(e)}")
+            st.error(f"❌ Error initializing audio system: {str(e)}")
             st.info("💡 Please check your system's audio settings")
             return None
             
@@ -269,7 +262,7 @@ def record_audio():
                         'audio_data': [],
                         'filename': f"recorded_audio_{time.strftime('%Y%m%d_%H%M%S')}.wav",
                         'start_time': time.time(),
-                        'device_id': device_id,
+                        'device_id': default_input['index'],
                         'audio_saved': False,
                         'processed': False,
                         'sample_rate': SAMPLE_RATE
