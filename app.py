@@ -220,8 +220,31 @@ def record_audio():
             st.error("⚠️ Live recording is not available on Streamlit Cloud due to security restrictions. Please use the 'Upload File' option instead.")
             st.info("💡 To use live recording, run this app locally on your computer.")
             return None
+
+        # Define sample rate at the function level
+        SAMPLE_RATE = 44100  # Standard sample rate
+
+        # Check available audio devices
+        devices = sd.query_devices()
+        if not devices:
+            st.error("❌ No audio devices found")
+            st.info("💡 Please ensure your microphone is connected and permissions are granted.")
+            return None
+
+        # Find default input device
+        try:
+            default_device = sd.query_devices(kind='input')
+            device_id = default_device['index']
+        except:
+            st.error("❌ No input device found")
+            st.info("Please select an input device:")
+            device_options = [d['name'] for d in devices if d['max_input_channels'] > 0]
+            if not device_options:
+                st.error("No input devices available")
+                return None
+            selected_device = st.selectbox("Select Input Device", device_options)
+            device_id = [d['index'] for d in devices if d['name'] == selected_device][0]
             
-        # Rest of the recording code for local deployment
         if 'recording_state' not in st.session_state:
             st.session_state.recording_state = {
                 'is_recording': False,
@@ -229,9 +252,6 @@ def record_audio():
                 'sample_rate': SAMPLE_RATE,
                 'processed': False
             }
-
-        # Define sample rate at the function level
-        SAMPLE_RATE = 44100  # Standard sample rate
         
         # Create columns for record button and status
         col1, col2 = st.columns([1, 3])
@@ -244,11 +264,10 @@ def record_audio():
                         'audio_data': [],
                         'filename': f"recorded_audio_{time.strftime('%Y%m%d_%H%M%S')}.wav",
                         'start_time': time.time(),
-                        'recorded_data': None,
+                        'device_id': device_id,
                         'audio_saved': False,
-                        'processing': False,
                         'processed': False,
-                        'sample_rate': SAMPLE_RATE  # Store sample rate in state
+                        'sample_rate': SAMPLE_RATE
                     }
                     st.rerun()
             else:
@@ -265,7 +284,12 @@ def record_audio():
             status_placeholder.markdown("🎙️ **Recording in progress...**")
             
             try:
-                with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='float32') as stream:
+                with sd.InputStream(
+                    device=st.session_state.recording_state.get('device_id'),
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    dtype='float32'
+                ) as stream:
                     while st.session_state.recording_state['is_recording']:
                         audio_chunk, _ = stream.read(SAMPLE_RATE // 10)
                         st.session_state.recording_state['audio_data'].append(audio_chunk)
@@ -275,8 +299,7 @@ def record_audio():
                         
             except Exception as e:
                 st.error(f"Recording failed: {str(e)}")
-                if "No Default Input Device Available" in str(e):
-                    st.info("💡 Please ensure your microphone is connected and permissions are granted.")
+                st.info("💡 Please check your microphone settings and permissions")
                 return None
 
         # Save recording if we have data
@@ -285,17 +308,10 @@ def record_audio():
             not st.session_state.recording_state['audio_saved']):
             
             try:
-                # Combine all audio chunks
                 audio = np.concatenate(st.session_state.recording_state['audio_data'])
-                
-                # Save as WAV file
                 filename = st.session_state.recording_state['filename']
                 sf.write(filename, audio, SAMPLE_RATE)
-                
-                # Store the recorded data for visualization
-                st.session_state.recording_state['recorded_data'] = audio
                 st.session_state.recording_state['audio_saved'] = True
-                
                 status_placeholder.markdown("✅ **Recording saved successfully!**")
                 return filename
                 
@@ -307,8 +323,7 @@ def record_audio():
 
     except Exception as e:
         st.error(f"Recording failed: {str(e)}")
-        if "No Default Input Device Available" in str(e):
-            st.info("💡 Please ensure your microphone is connected and permissions are granted.")
+        st.info("💡 Please check your microphone settings and permissions")
         return None
 
 def text_to_speech(text, language='en', audio_path=None):
