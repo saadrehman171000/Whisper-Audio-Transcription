@@ -9,8 +9,8 @@ setuptools>=68.0.0
 wheel>=0.42.0
 
 # ML packages
-torch>=2.0.0+cpu
-torchaudio>=2.0.0+cpu
+torch==2.0.0+cpu
+torchaudio==2.0.0+cpu
 openai-whisper==20231117
 
 # Audio processing
@@ -19,6 +19,7 @@ soundfile==0.12.1
 ffmpeg-python==0.2.0
 librosa>=0.9.0
 sounddevice==0.4.5
+portaudio19-dev
 
 # Additional features
 gTTS==2.3.1

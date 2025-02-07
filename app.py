@@ -224,26 +224,31 @@ def record_audio():
         # Define sample rate at the function level
         SAMPLE_RATE = 44100  # Standard sample rate
 
-        # Check available audio devices
-        devices = sd.query_devices()
-        if not devices:
-            st.error("❌ No audio devices found")
-            st.info("💡 Please ensure your microphone is connected and permissions are granted.")
-            return None
-
-        # Find default input device
+        # Initialize sounddevice
         try:
-            default_device = sd.query_devices(kind='input')
-            device_id = default_device['index']
+            sd._terminate()
+            sd._initialize()
         except:
-            st.error("❌ No input device found")
-            st.info("Please select an input device:")
-            device_options = [d['name'] for d in devices if d['max_input_channels'] > 0]
-            if not device_options:
-                st.error("No input devices available")
+            pass
+
+        # Check available audio devices
+        try:
+            devices = sd.query_devices()
+            input_devices = [d for d in devices if d['max_input_channels'] > 0]
+            
+            if not input_devices:
+                st.error("❌ No input devices found")
+                st.info("💡 Please ensure your microphone is connected and permissions are granted.")
                 return None
-            selected_device = st.selectbox("Select Input Device", device_options)
-            device_id = [d['index'] for d in devices if d['name'] == selected_device][0]
+
+            # Use the first available input device
+            device_id = input_devices[0]['index']
+            st.success(f"🎤 Using input device: {input_devices[0]['name']}")
+
+        except Exception as e:
+            st.error(f"❌ Error detecting audio devices: {str(e)}")
+            st.info("💡 Please check your system's audio settings")
+            return None
             
         if 'recording_state' not in st.session_state:
             st.session_state.recording_state = {
