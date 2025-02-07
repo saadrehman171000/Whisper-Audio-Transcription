@@ -2,6 +2,8 @@ ffmpeg
 libsndfile1
 portaudio19-dev
 python3-dev
+python3-distutils
+python3-setuptools
 build-essential
 pkg-config
 libasound2-dev
