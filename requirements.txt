@@ -3,10 +3,9 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Base packages - install these first
-setuptools==69.0.3
-wheel==0.42.0
-distutils-extra==2.39
-numpy==1.23.5
+setuptools
+wheel
+numpy<2.0.0
 
 # ML packages
 torch==2.2.0+cpu
@@ -15,20 +14,20 @@ openai-whisper==20231117
 
 # Streamlit and visualization
 streamlit>=1.28.0
-matplotlib==3.7.1
-pandas==1.5.3
+matplotlib<4.0.0
+pandas<2.0.0
 
 # Audio processing
-scipy==1.10.1
+scipy<2.0.0
 soundfile==0.12.1
 ffmpeg-python==0.2.0
-librosa==0.9.2
+librosa<1.0.0
 sounddevice==0.4.5
-pyaudio==0.2.13
+pyaudio
 
 # Additional features
 gTTS==2.3.1
 textblob==0.17.1
-scikit-learn==1.0.2
+scikit-learn<2.0.0
 google-generativeai==0.3.1
-pillow==9.5.0 
+pillow<10.0.0 

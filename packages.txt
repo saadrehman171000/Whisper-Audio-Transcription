@@ -17,4 +17,6 @@ libwebp-dev
 python3-pil
 zlib1g-dev
 python3-pyaudio
-alsa-utils 
+alsa-utils
+python3-pip
+python3-wheel 
